@@ -1,0 +1,117 @@
+# Every push and pull request: the operation table matches the pinned spec, nothing says what it must not, the tests
+# pass on the oldest and newest supported Go, and both programs build for every release target.
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        go: ['1.26', 'stable']
+    defaults:
+      run:
+        working-directory: pperp
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: pperp
+      # the public SDK repo beside it, for its words guard (the Go SDK itself comes from go.mod, published)
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: phoenixperps/sdk
+          path: sdk
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: ${{ matrix.go }}
+          cache-dependency-path: pperp/go.sum
+      - name: gofmt
+        run: test -z "$(gofmt -l .)"
+      - name: the operation table matches the spec
+        run: go generate ./... && git diff --exit-code
+      - run: go vet ./...
+      - run: go test -race ./...
+      - name: words guard
+        if: matrix.go == 'stable'
+        env:
+          PP_WORDS_DENYLIST: ${{ secrets.WORDS_DENYLIST }}
+        run: node ../sdk/scripts/words-guard.js .
+      - name: builds for every target
+        if: matrix.go == 'stable'
+        run: |
+          for t in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64 windows/amd64 windows/arm64; do
+            GOOS=${t%/*} GOARCH=${t#*/} CGO_ENABLED=0 go build -trimpath -o /dev/null ./cmd/pperp
+          done
+          GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -o /dev/null ./cmd/pperp-mcpd
+
+  # the installers against a release served on this runner: installed, run, and a tampered archive refused
+  installers:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    defaults:
+      run:
+        working-directory: pperp
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: pperp
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: stable
+          cache-dependency-path: pperp/go.sum
+      - name: shellcheck
+        if: runner.os == 'Linux'
+        run: shellcheck install/install.sh
+      - name: a release on this runner
+        run: |
+          os=$(go env GOOS); arch=$(go env GOARCH); site="$RUNNER_TEMP/site"; mkdir -p "$site/v0.0.1" "$RUNNER_TEMP/bin"
+          if [ "$os" = windows ]; then
+            go build -ldflags "-X main.version=0.0.1" -o "$RUNNER_TEMP/bin/pperp.exe" ./cmd/pperp
+            (cd "$RUNNER_TEMP/bin" && 7z a -tzip "$site/v0.0.1/pperp_0.0.1_${os}_${arch}.zip" pperp.exe >/dev/null)
+          else
+            go build -ldflags "-X main.version=0.0.1" -o "$RUNNER_TEMP/bin/pperp" ./cmd/pperp
+            tar -czf "$site/v0.0.1/pperp_0.0.1_${os}_${arch}.tar.gz" -C "$RUNNER_TEMP/bin" pperp
+          fi
+          sum() { if command -v sha256sum >/dev/null; then sha256sum "$1"; else shasum -a 256 "$1"; fi | cut -d' ' -f1; }
+          (cd "$site/v0.0.1" && for f in pperp_*; do echo "$(sum "$f")  $f"; done > SHA256SUMS)
+          echo '{"version":"0.0.1","published_at":"2026-01-01T00:00:00Z","min_supported":"0.0.1","revoked":[],"notes":""}' > "$site/latest.json"
+          py=$(command -v python3 || command -v python)
+          (cd "$site" && "$py" -m http.server 18731 --bind 127.0.0.1 >/dev/null 2>&1 &)
+          sleep 2
+      - name: install.sh
+        if: runner.os != 'Windows'
+        run: |
+          export PPERP_RELEASES_URL=http://127.0.0.1:18731 PPERP_INSTALL_DIR="$RUNNER_TEMP/home/bin"
+          sh install/install.sh
+          "$PPERP_INSTALL_DIR/pperp" version | grep -q "pperp 0.0.1"
+          f=$(ls "$RUNNER_TEMP/site/v0.0.1/" | grep tar.gz); echo x >> "$RUNNER_TEMP/site/v0.0.1/$f"
+          if PPERP_INSTALL_DIR="$RUNNER_TEMP/home/bin2" sh install/install.sh; then echo "a tampered archive was installed"; exit 1; fi
+          test ! -e "$RUNNER_TEMP/home/bin2/pperp"
+      - name: install.ps1
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $env:PPERP_RELEASES_URL = 'http://127.0.0.1:18731'; $env:PPERP_INSTALL_DIR = "$env:RUNNER_TEMP\home\pperp"; $env:PPERP_NO_MODIFY_PATH = '1'
+          ./install/install.ps1
+          if (-not ((& "$env:PPERP_INSTALL_DIR\pperp.exe" version) -match 'pperp 0.0.1')) { throw 'not installed' }
+          $zip = Get-ChildItem "$env:RUNNER_TEMP\site\v0.0.1\*.zip" | Select-Object -First 1
+          Add-Content -Path $zip.FullName -Value 'x'
+          $env:PPERP_INSTALL_DIR = "$env:RUNNER_TEMP\home\pperp2"
+          $refused = $false
+          try { ./install/install.ps1 } catch { $refused = $_.Exception.Message -match 'checksum' }
+          if (-not $refused -or (Test-Path "$env:PPERP_INSTALL_DIR\pperp.exe")) { throw 'a tampered archive was installed' }
