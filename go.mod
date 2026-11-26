@@ -10,7 +10,7 @@ require (
 	github.com/itchyny/gojq v0.12.19
 	github.com/jedisct1/go-minisign v0.0.0-20260527172527-a09352b57a22
 	github.com/modelcontextprotocol/go-sdk v1.8.0
-	github.com/phoenixperps/sdk/go v1.3.0
+	github.com/phoenixperps/sdk/go v1.3.1
 	github.com/spf13/cobra v1.10.2
 	github.com/zalando/go-keyring v0.2.8
 	golang.org/x/crypto v0.58.0

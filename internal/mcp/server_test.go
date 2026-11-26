@@ -12,6 +12,8 @@ import (
 	"time"
 
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"github.com/phoenixperps/pperp/internal/ops"
 )
 
 // The MCP server against a fake API (docs/api/design/15-cli-mcp.md "Verification"): who is taken where, the tools each
@@ -67,6 +69,16 @@ func (f *fakeAPI) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			"credential": map[string]any{"kind": "app", "id": "g1", "environment": "live", "access": access},
 			"assistant":  map[string]any{"confirm_trades": confirm, "confirm_seconds": 120},
 		}})
+	case strings.HasSuffix(r.URL.Path, "/orders/test") && body["size"] == "0.0015":
+		w.WriteHeader(400)
+		_, _ = io.WriteString(w, `{"error":{"code":"invalid_size_step","message":"The size is not a whole number of steps.","details":{"size_step":"0.001"}}}`)
+	case strings.HasSuffix(r.URL.Path, "/orders/test") && body["size"] == "7":
+		w.WriteHeader(503)
+		_, _ = io.WriteString(w, `{"error":{"code":"state_unavailable","message":"Try again."}}`)
+	case strings.HasSuffix(r.URL.Path, "/close"):
+		w.Header().Set("Warning", `299 - "size above the position: the whole position was closed"`)
+		w.WriteHeader(201)
+		_, _ = io.WriteString(w, `{"data":{"id":"ord_2","status":"filled"}}`)
 	case strings.HasSuffix(r.URL.Path, "/orders/test") && body["size"] == "999":
 		_, _ = io.WriteString(w, `{"data":{"result":"would_reject","reject":{"code":"insufficient_margin","message":"Not enough margin.","details":{"required_usd":"9","available_usd":"1"}}}}`)
 	case strings.HasSuffix(r.URL.Path, "/orders/test"):
@@ -409,5 +421,36 @@ func TestArgumentsAndAnswers(t *testing.T) {
 	r, refused := call(t, live, "place-order", big)
 	if refused.Status != 422 || refused.Code != "insufficient_margin" || refused.Confirmation != "" || !r.IsError {
 		t.Fatalf("would_reject: the refusal, never a preview: %+v", refused)
+	}
+	// R7 Q110: an order test refused (a size off its step) is that refusal, never a preview to agree to; one the API
+	// could not make (503) is a preview that says so
+	off := map[string]any{"account_id": "PPERPS-00042-001", "market": "BTC-USD", "side": "buy", "type": "limit", "size": "0.0015", "limit_price": "62000", "idempotency_key": "off-1"}
+	if _, o := call(t, live, "place-order", off); o.Status != 400 || o.Code != "invalid_size_step" || o.Confirmation != "" {
+		t.Fatalf("a refused order test is the refusal: %+v", o)
+	}
+	busy := map[string]any{"account_id": "PPERPS-00042-001", "market": "BTC-USD", "side": "buy", "type": "limit", "size": "7", "limit_price": "62000", "idempotency_key": "busy-1"}
+	if _, o := call(t, live, "place-order", busy); o.Status != 428 || o.Confirmation == "" || !strings.Contains(o.NextAction, "No preview could be made") {
+		t.Fatalf("a preview the API could not make says so: %+v", o)
+	}
+	// the API's Warning reaches the assistant (an oversize close said)
+	if _, o := call(t, s, "close-position", map[string]any{"account_id": "SANDBOX-00042-001", "market": "BTC-USD", "size": "9", "idempotency_key": "c-1"}); !strings.Contains(o.Warning, "whole position") {
+		t.Fatalf("the Warning: %+v", o)
+	}
+}
+
+// R7: a tool that takes no idempotency_key never promises one in its description.
+func TestToolsPromiseNoKeyTheyDoNotTake(t *testing.T) {
+	for _, name := range []string{"modify-order", "set-exits"} {
+		o, ok := ops.ByName(name)
+		if !ok {
+			t.Fatalf("no %s", name)
+		}
+		d := tool(o, false).Description
+		if strings.Contains(d, "Idempotency-Key") || !strings.Contains(d, "takes no idempotency_key") {
+			t.Fatalf("%s: %s", name, d)
+		}
+	}
+	if o, _ := ops.ByName("place-order"); strings.Contains(tool(o, false).Description, "takes no idempotency_key") {
+		t.Fatal("place-order takes one")
 	}
 }

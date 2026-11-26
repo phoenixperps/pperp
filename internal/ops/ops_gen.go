@@ -3,7 +3,7 @@
 package ops
 
 // SpecVersion is the version of the API spec this table was made from.
-const SpecVersion = "1.1.0"
+const SpecVersion = "1.1.2"
 
 // All is every operation of the API, by operationId.
 var All = []Op{

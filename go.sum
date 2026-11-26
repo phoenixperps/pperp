@@ -25,8 +25,8 @@ github.com/jedisct1/go-minisign v0.0.0-20260527172527-a09352b57a22 h1:C68TAi+k12
 github.com/jedisct1/go-minisign v0.0.0-20260527172527-a09352b57a22/go.mod h1:vYVVh81Lqe/TP0sPLjiNYcX9Hxy/YSfkUx96lYJeyKo=
 github.com/modelcontextprotocol/go-sdk v1.8.0 h1:KIvahhYqwtbeniWVPs3TcXEA7b8jEtwfBpOTAI+Urx4=
 github.com/modelcontextprotocol/go-sdk v1.8.0/go.mod h1:dL7u98E/zjJTGzEq+j30jQ8K2k1mb6LeAH4inEcSGts=
-github.com/phoenixperps/sdk/go v1.3.0 h1:ypPp/T1vqYELbpVZ7r4PVsdTeldvxJtZznw10YrUFtQ=
-github.com/phoenixperps/sdk/go v1.3.0/go.mod h1:4G+zSABg7CBx7ZM+8lgdLWYoRooIbQMVamTjrBTMdE0=
+github.com/phoenixperps/sdk/go v1.3.1 h1:VJVf9C7Im18+SJPePkgC3KPiJo9KOP4XHLK5ssZEmXM=
+github.com/phoenixperps/sdk/go v1.3.1/go.mod h1:4G+zSABg7CBx7ZM+8lgdLWYoRooIbQMVamTjrBTMdE0=
 github.com/pmezard/go-difflib v1.0.0 h1:4DBwDE0NGyQoBHbLQYPwSUPoCMWR5BEzIk/f1lZbAQM=
 github.com/pmezard/go-difflib v1.0.0/go.mod h1:iKH77koFhYxTK1pcRnkKkqfTogsbg7gZNVY4sRDYZ/4=
 github.com/russross/blackfriday/v2 v2.1.0/go.mod h1:+Rmxgy9KzJVeS9/2gXHxylqXiyQDYRxCVz55jmeOWTM=

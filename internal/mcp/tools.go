@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 
@@ -93,6 +94,7 @@ type Result struct {
 	Summary            string `json:"summary,omitempty"`
 	Confirmation       string `json:"confirmation,omitempty"`
 	ExpiresAt          string `json:"expires_at,omitempty"`
+	Warning            string `json:"warning,omitempty"` // the API's Warning: what it did differently from what was asked (R7)
 	Preview            any    `json:"preview,omitempty"`
 	Body               any    `json:"body"`
 }
@@ -125,8 +127,15 @@ func tool(o ops.Op, withConfirmation bool) *sdk.Tool {
 	if o.Description != "" {
 		desc += " " + o.Description
 	}
+	// the REST call's optional Idempotency-Key is no argument of a tool that does not take one (R7): said in its own terms
+	if !o.Idempotent && idempotencyWords.MatchString(desc) {
+		desc = strings.TrimSpace(idempotencyWords.ReplaceAllString(desc, "")) + " This tool takes no idempotency_key: when an answer is lost, read the state again before repeating it (a change made twice is refused once the state moved)."
+	}
 	return &sdk.Tool{Name: o.Name, Description: desc, InputSchema: schema, Annotations: ann}
 }
+
+// idempotencyWords are the sentences of an operation's description about its REST Idempotency-Key.
+var idempotencyWords = regexp.MustCompile(`[^.]*Idempotency-Key[^.]*\.\s*`)
 
 // readOnly are the operations sent by POST that change nothing (a preview, a parse).
 var readOnly = map[string]bool{"test-order": true, "parse-trading-view-message": true}
@@ -322,7 +331,16 @@ func (h *Handler) preview(ctx context.Context, s *session, o ops.Op, args map[st
 					fields[k] = v
 				}
 			}
-			if a, err := h.gateway.Call(ctx, s.env, s.token, s.ip, t, fields); err == nil && a.Status == 200 {
+			a, err := h.gateway.Call(ctx, s.env, s.token, s.ip, t, fields)
+			switch {
+			case err == nil && a.Status >= 400 && a.Status < 500 && a.Status != 429:
+				// the order's own fault (a size off its step, a key's limit): said now, nothing to agree to (R7 Q110)
+				res := shape(t, a, args)
+				return res
+			case err != nil || a.Status != 200:
+				r.NextAction = "No preview could be made now (the API was busy): show the summary; the order is checked again when it is sent."
+			}
+			if err == nil && a.Status == 200 {
 				var w struct {
 					Data struct {
 						Result string `json:"result"`
@@ -411,7 +429,7 @@ func shape(o ops.Op, a *Answer, args map[string]any) *sdk.CallToolResult {
 	if len(a.Body) > maxBody {
 		return toolResult(Result{Status: 413, Code: "result_too_large", NextAction: "Ask for a smaller page (limit).", Body: nil})
 	}
-	r := Result{Status: a.Status, RequestID: a.Header.Get("X-Request-Id"), IdempotencyKey: key, RetryAfterSeconds: a.RetryAfter, IdempotentReplayed: a.Header.Get("Idempotent-Replayed") == "true"}
+	r := Result{Status: a.Status, RequestID: a.Header.Get("X-Request-Id"), IdempotencyKey: key, RetryAfterSeconds: a.RetryAfter, IdempotentReplayed: a.Header.Get("Idempotent-Replayed") == "true", Warning: a.Header.Get("Warning")}
 	var body any
 	if len(a.Body) > 0 && json.Unmarshal(a.Body, &body) == nil {
 		r.Body = body

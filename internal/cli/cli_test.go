@@ -257,6 +257,22 @@ func TestExitCodes(t *testing.T) {
 	}
 }
 
+// R7: with PHOENIXPERPS_API_KEY, the account `pperp use` saved applies when that key reaches it.
+func TestUseWithAnEnvironmentKey(t *testing.T) {
+	api, srv := newAPI(t)
+	api.routes["GET /v1/accounts"] = reply(200, `{"data":[{"id":"SANDBOX-00042-001","status":"active","stage":"sandbox"},{"id":"SANDBOX-00042-002","status":"active","stage":"sandbox"}],"has_more":false,"next_cursor":null}`)
+	api.routes["GET /v1/accounts/SANDBOX-00042-002"] = reply(200, `{"data":{"id":"SANDBOX-00042-002","status":"active","stage":"sandbox"}}`)
+	api.routes["GET /v1/accounts/SANDBOX-00042-002/risk"] = reply(200, `{"data":{"equity":"100000.00"}}`)
+	h := newHarness(t, srv)
+	h.env["PHOENIXPERPS_API_KEY"] = testKey
+	if _, errOut, code := h.run("use", "SANDBOX-00042-002"); code != 0 {
+		t.Fatalf("use: %d %s", code, errOut)
+	}
+	if _, errOut, code := h.run("risk"); code != 0 || len(api.calls("GET", "/v1/accounts/SANDBOX-00042-002/risk")) != 1 {
+		t.Fatalf("the saved account with an environment key: %d %s", code, errOut)
+	}
+}
+
 func TestTradesAsk(t *testing.T) {
 	api, srv := newAPI(t)
 	api.routes["POST /v1/accounts/SANDBOX-00042-001/orders/test"] = reply(200, `{"data":{"result":"would_fill","execution":{"expected_price":"63010","worst_price":"63640"},"size":"0.01","notional":"630.10","fee":"0.32","margin":{"required":"63.01","available_after":"99936.99"}}}`)

@@ -259,6 +259,14 @@ func (a *App) account(ctx context.Context, k *conn) (string, error) {
 		return "", err
 	}
 	items, _ := list.([]any)
+	// with PHOENIXPERPS_API_KEY, the profile's default (pperp use) when that key reaches it (R7: it was ignored)
+	if k.p.DefaultAccount != "" {
+		for _, it := range items {
+			if strings.EqualFold(str(it, "id"), k.p.DefaultAccount) {
+				return k.p.DefaultAccount, nil
+			}
+		}
+	}
 	var all, open []string
 	for _, it := range items {
 		id := str(it, "id")

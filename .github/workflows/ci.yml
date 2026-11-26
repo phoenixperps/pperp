@@ -40,6 +40,9 @@ jobs:
         run: test -z "$(gofmt -l .)"
       - name: the operation table matches the spec
         run: go generate ./... && git diff --exit-code
+      # the vendored spec is the one the published SDKs carry (R7: it stayed 1.1.0 while the API served 1.1.1)
+      - name: the vendored spec is the SDKs' own
+        run: cmp spec/openapi.json ../sdk/spec/openapi.json
       - run: go vet ./...
       - run: go test -race ./...
       - name: words guard
